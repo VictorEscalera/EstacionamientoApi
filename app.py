@@ -1,29 +1,31 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymongo import MongoClient
+from pymongo.errors import DuplicateKeyError
 import uuid
 from datetime import datetime
+import os
+import bcrypt
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app)
 
-# conexión a MongoDB Atlas
-cliente = MongoClient("mongodb+srv://mimi:oaOKqX0tvwe8d7u2@cluster0.rkxwz.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+# =========================
+# CONEXIÓN MONGO (VARIABLE ENTORNO)
+# =========================
+MONGO_URI = os.environ.get("MONGO_URI")
 
-# base de datos
+cliente = MongoClient(MONGO_URI)
 db = cliente["Estacionamiento"]
 
-# colección
 usuarios = db["usuarios"]
-
-# nueva colección
 entrada = db["entrada"]
 
-# índice único para correo
+# índice único
 usuarios.create_index("correo", unique=True)
 
 # =========================
-# CREAR USUARIO (solo usuarios normales)
+# REGISTRO
 # =========================
 @app.route("/usuarios", methods=["POST"])
 def crear_usuario():
@@ -41,27 +43,36 @@ def crear_usuario():
         })
 
     # validar duplicados
-    usuario_existente = usuarios.find_one({
+    existente = usuarios.find_one({
         "$or": [
             {"correo": correo},
             {"nombre": nombre}
         ]
     })
 
-    if usuario_existente:
+    if existente:
         return jsonify({
             "success": False,
             "mensaje": "El nombre o correo ya existen"
         })
 
+    # 🔐 encriptar password
+    hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+
     nuevo_usuario = {
         "nombre": nombre,
         "correo": correo,
-        "password": password,
-        "rol": "usuario"  # IMPORTANTE
+        "password": hashed,
+        "rol": "usuario"
     }
 
-    resultado = usuarios.insert_one(nuevo_usuario)
+    try:
+        resultado = usuarios.insert_one(nuevo_usuario)
+    except DuplicateKeyError:
+        return jsonify({
+            "success": False,
+            "mensaje": "El correo ya está registrado"
+        })
 
     return jsonify({
         "success": True,
@@ -69,8 +80,9 @@ def crear_usuario():
         "id": str(resultado.inserted_id)
     })
 
+
 # =========================
-# LOGIN (usuarios y admins)
+# LOGIN
 # =========================
 @app.route("/login", methods=["POST"])
 def login():
@@ -86,12 +98,9 @@ def login():
             "mensaje": "Faltan credenciales"
         })
 
-    usuario = usuarios.find_one({
-        "correo": correo,
-        "password": password
-    })
+    usuario = usuarios.find_one({"correo": correo})
 
-    if usuario:
+    if usuario and bcrypt.checkpw(password.encode('utf-8'), usuario["password"]):
 
         usuario["_id"] = str(usuario["_id"])
 
@@ -101,15 +110,19 @@ def login():
                 "_id": usuario["_id"],
                 "nombre": usuario["nombre"],
                 "correo": usuario["correo"],
-                "rol": usuario.get("rol", "usuario")  # por si acaso
+                "rol": usuario.get("rol", "usuario")
             }
         })
 
-    else:
-        return jsonify({
-            "success": False,
-            "mensaje": "Usuario o contraseña incorrectos"
-        })
+    return jsonify({
+        "success": False,
+        "mensaje": "Usuario o contraseña incorrectos"
+    })
+
+
+# =========================
+# CREAR QR (ENTRADA)
+# =========================
 @app.route("/crear-qr", methods=["POST"])
 def crear_qr():
 
@@ -135,6 +148,10 @@ def crear_qr():
         "horaEntrada": str(nuevo["horaEntrada"])
     })
 
+
+# =========================
+# SALIDA
+# =========================
 @app.route("/salida", methods=["POST"])
 def salida():
 
@@ -152,10 +169,7 @@ def salida():
     hora_salida = datetime.now()
     hora_entrada = registro["horaEntrada"]
 
-    # ⏱️ calcular tiempo en minutos
     tiempo = (hora_salida - hora_entrada).total_seconds() / 60
-
-    # 💰 tarifa (puedes cambiarla)
     precio = round(tiempo * 0.5, 2)
 
     entrada.update_one(
@@ -174,6 +188,9 @@ def salida():
     })
 
 
+# =========================
+# VALIDAR QR
+# =========================
 @app.route("/validar-qr", methods=["POST"])
 def validar_qr():
 
@@ -200,9 +217,18 @@ def validar_qr():
             "estado": registro.get("estado")
         }
     })
-    
+
+
 # =========================
-# RUN
+# RUTA TEST
+# =========================
+@app.route("/", methods=["GET"])
+def inicio():
+    return jsonify({"mensaje": "API funcionando 🔥"})
+
+
+# =========================
+# RUN (RAILWAY READY)
 # =========================
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
