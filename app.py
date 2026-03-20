@@ -109,28 +109,43 @@ def crear_usuario():
 # --- LOGIN ---
 @app.route("/login", methods=["POST"])
 def login():
-    datos = request.json
-    correo = datos.get("correo")
-    password = datos.get("password")
+    try:
+        datos = request.json
+        correo = datos.get("correo")
+        password = datos.get("password")
 
-    if not correo or not password:
-        return jsonify({"success": False, "mensaje": "Faltan credenciales"}), 400
+        if not correo or not password:
+            return jsonify({"success": False, "mensaje": "Faltan credenciales"}), 400
 
-    usuario = usuarios.find_one({"correo": correo})
+        usuario = usuarios.find_one({"correo": correo})
 
-    # Verificamos hash de password
-    if usuario and bcrypt.checkpw(password.encode('utf-8'), usuario["password"]):
-        return jsonify({
-            "success": True,
-            "usuario": {
-                "_id": str(usuario["_id"]),
-                "nombre": usuario["nombre"],
-                "correo": usuario["correo"],
-                "rol": usuario.get("rol", "usuario")
-            }
-        })
+        if not usuario:
+            return jsonify({"success": False, "mensaje": "Usuario no encontrado"}), 404
 
-    return jsonify({"success": False, "mensaje": "Usuario o contraseña incorrectos"}), 401
+        # 🔑 LA CLAVE: bcrypt necesita bytes. 
+        # Si Mongo guardó el hash como string o binario, hay que asegurar el tipo.
+        db_password = usuario["password"]
+        
+        # Si por alguna razón se guardó como string, lo convertimos a bytes
+        if isinstance(db_password, str):
+            db_password = db_password.encode('utf-8')
+
+        if bcrypt.checkpw(password.encode('utf-8'), db_password):
+            return jsonify({
+                "success": True,
+                "usuario": {
+                    "_id": str(usuario["_id"]),
+                    "nombre": usuario["nombre"],
+                    "correo": usuario["correo"],
+                    "rol": usuario.get("rol", "usuario")
+                }
+            })
+        else:
+            return jsonify({"success": False, "mensaje": "Contraseña incorrecta"}), 401
+
+    except Exception as e:
+        print(f"Error en Login: {e}") # Esto saldrá en los logs de Railway
+        return jsonify({"success": False, "mensaje": "Error interno del servidor"}), 500
 
 # --- CONTROL DE ENTRADA (GENERAR QR) ---
 @app.route("/crear-qr", methods=["POST"])
