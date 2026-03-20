@@ -8,28 +8,27 @@ import os
 import bcrypt
 
 app = Flask(__name__)
-# Permitimos CORS para que tu frontend (React/Flutter/HTML) pueda conectar
+# CORS habilitado para conectar con Ionic/Frontend
 CORS(app)
 
 # =========================
 # CONFIGURACIÓN DE MONGODB
 # =========================
-# Importante: Configura "MONGO_URI" en las variables de entorno de Railway
 MONGO_URI = os.environ.get("MONGO_URI")
 
-# Configuramos un timeout de 5s para que Railway no se quede pegado si la DB no responde
+# Timeout de 5s para evitar que el despliegue se congele si la DB no responde
 cliente = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 db = cliente["Estacionamiento"]
 
 usuarios = db["usuarios"]
 entrada = db["entrada"]
 
-# Intentar crear índice único para el correo al arrancar
+# Crear índice único para el correo
 try:
     usuarios.create_index("correo", unique=True)
-    print("Conexión a MongoDB exitosa y configuración lista ✅")
+    print("Conexión a MongoDB exitosa ✅")
 except Exception as e:
-    print(f"Aviso: No se pudo verificar la DB al iniciar: {e}")
+    print(f"Aviso: Error de conexión inicial: {e}")
 
 # =========================
 # RUTAS DE LA API
@@ -43,19 +42,13 @@ def inicio():
         "timestamp": datetime.now()
     })
 
-    # =========================
-# OBTENER TODOS LOS USUARIOS
-# =========================
+# --- OBTENER TODOS LOS USUARIOS ---
 @app.route("/usuarios", methods=["GET"])
 def obtener_usuarios():
     try:
-        # Buscamos todos los usuarios en la colección
         lista_usuarios = list(usuarios.find())
-        
-        # Formateamos la lista para que sea un JSON válido (convertimos el _id a string)
         for u in lista_usuarios:
             u["_id"] = str(u["_id"])
-            # Por seguridad, no enviaremos el password en el listado
             if "password" in u:
                 del u["password"]
         
@@ -64,11 +57,10 @@ def obtener_usuarios():
             "total": len(lista_usuarios),
             "usuarios": lista_usuarios
         }), 200
-
     except Exception as e:
         return jsonify({"success": False, "mensaje": str(e)}), 500
 
-# --- REGISTRO ---
+# --- REGISTRO (CORREGIDO) ---
 @app.route("/usuarios", methods=["POST"])
 def crear_usuario():
     try:
@@ -80,18 +72,17 @@ def crear_usuario():
         if not nombre or not correo or not password:
             return jsonify({"success": False, "mensaje": "Faltan datos básicos"}), 400
 
-        # Validar si ya existe
         if usuarios.find_one({"$or": [{"correo": correo}, {"nombre": nombre}]}):
             return jsonify({"success": False, "mensaje": "El nombre o correo ya existen"}), 409
 
-        # Encriptar password
+        # Encriptar password y decodificar a string para guardar en Mongo limpiamente
         salt = bcrypt.gensalt()
         hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
 
         nuevo_usuario = {
             "nombre": nombre,
             "correo": correo,
-            "password": hashed, # Se guarda como bytes en Mongo
+            "password": hashed.decode('utf-8'), # 🔥 Se guarda como string legible
             "rol": "usuario",
             "fecha_registro": datetime.now()
         }
@@ -106,15 +97,15 @@ def crear_usuario():
     except Exception as e:
         return jsonify({"success": False, "mensaje": str(e)}), 500
 
-# --- LOGIN ---
+# --- LOGIN (CORREGIDO) ---
 @app.route("/login", methods=["POST"])
 def login():
     try:
         datos = request.json
         correo = datos.get("correo")
-        password = datos.get("password")
+        password_plano = datos.get("password")
 
-        if not correo or not password:
+        if not correo or not password_plano:
             return jsonify({"success": False, "mensaje": "Faltan credenciales"}), 400
 
         usuario = usuarios.find_one({"correo": correo})
@@ -122,15 +113,13 @@ def login():
         if not usuario:
             return jsonify({"success": False, "mensaje": "Usuario no encontrado"}), 404
 
-        # 🔑 LA CLAVE: bcrypt necesita bytes. 
-        # Si Mongo guardó el hash como string o binario, hay que asegurar el tipo.
-        db_password = usuario["password"]
-        
-        # Si por alguna razón se guardó como string, lo convertimos a bytes
-        if isinstance(db_password, str):
-            db_password = db_password.encode('utf-8')
+        # Recuperar password y asegurar que sea bytes para bcrypt
+        password_db = usuario["password"]
+        if isinstance(password_db, str):
+            password_db = password_db.encode('utf-8')
 
-        if bcrypt.checkpw(password.encode('utf-8'), db_password):
+        # Comparar
+        if bcrypt.checkpw(password_plano.encode('utf-8'), password_db):
             return jsonify({
                 "success": True,
                 "usuario": {
@@ -144,10 +133,10 @@ def login():
             return jsonify({"success": False, "mensaje": "Contraseña incorrecta"}), 401
 
     except Exception as e:
-        print(f"Error en Login: {e}") # Esto saldrá en los logs de Railway
-        return jsonify({"success": False, "mensaje": "Error interno del servidor"}), 500
+        print(f"Error en Login: {e}")
+        return jsonify({"success": False, "mensaje": "Error en el servidor: Invalid Salt o Formato"}), 500
 
-# --- CONTROL DE ENTRADA (GENERAR QR) ---
+# --- CONTROL DE ENTRADA (QR) ---
 @app.route("/crear-qr", methods=["POST"])
 def crear_qr():
     datos = request.json
@@ -170,7 +159,7 @@ def crear_qr():
         "horaEntrada": nuevo_registro["horaEntrada"].strftime("%Y-%m-%d %H:%M:%S")
     })
 
-# --- CONTROL DE SALIDA (PAGO) ---
+# --- CONTROL DE SALIDA ---
 @app.route("/salida", methods=["POST"])
 def salida():
     datos = request.json
@@ -179,38 +168,25 @@ def salida():
     registro = entrada.find_one({"qrToken": token, "estado": "dentro"})
 
     if not registro:
-        return jsonify({"success": False, "mensaje": "Registro no encontrado o ya salió"}), 404
+        return jsonify({"success": False, "mensaje": "Registro no encontrado"}), 404
 
     hora_salida = datetime.now()
-    hora_entrada = registro["horaEntrada"]
-
-    # Cálculo de tiempo y precio (ejemplo: 0.5 por minuto)
-    diferencia = hora_salida - hora_entrada
+    diferencia = hora_salida - registro["horaEntrada"]
     minutos = diferencia.total_seconds() / 60
     precio = round(minutos * 0.5, 2)
 
     entrada.update_one(
         {"_id": registro["_id"]},
-        {"$set": {
-            "horaSalida": hora_salida,
-            "estado": "salida",
-            "precio": precio
-        }}
+        {"$set": {"horaSalida": hora_salida, "estado": "salida", "precio": precio}}
     )
 
-    return jsonify({
-        "success": True,
-        "tiempo_minutos": round(minutos, 2),
-        "precio_total": precio,
-        "mensaje": "Salida registrada con éxito"
-    })
+    return jsonify({"success": True, "tiempo_minutos": round(minutos, 2), "precio_total": precio})
 
 # --- VALIDACIÓN DE QR ---
 @app.route("/validar-qr", methods=["POST"])
 def validar_qr():
     datos = request.json
     token = datos.get("qrToken")
-
     registro = entrada.find_one({"qrToken": token})
 
     if not registro:
@@ -226,7 +202,6 @@ def validar_qr():
         }
     })
 
-# Comando para ejecución local (Railway usa Gunicorn, pero esto sirve para pruebas)
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
