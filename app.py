@@ -141,6 +141,52 @@ def validar_qr():
         }
     })
 
+# --- 1. ESTADÍSTICAS DEL DASHBOARD ---
+@app.route("/stats", methods=["GET"])
+def obtener_stats():
+    try:
+        total_lugares = 50 # Puedes cambiar este número
+        ocupados = entrada.count_documents({"estado": "dentro"})
+        disponibles = total_lugares - ocupados
+        
+        # Opcional: Calcular ingresos (suma de campo 'precio' en registros de salida)
+        # Por ahora lo dejamos en 0 o un valor fijo
+        ingresos = 0 
+        
+        return jsonify({
+            "totalSpaces": total_lugares,
+            "occupiedSpaces": ocupados,
+            "availableSpaces": disponibles,
+            "dailyIncome": ingresos
+        }), 200
+    except Exception as e:
+        return jsonify({"success": False, "mensaje": str(e)}), 500
+
+# --- 2. LISTADO DE VEHÍCULOS ---
+@app.route("/vehicles", methods=["GET"])
+def obtener_vehiculos():
+    try:
+        # Traemos los últimos 20 vehículos registrados
+        lista = list(entrada.find().sort("horaEntrada", -1).limit(20))
+        for v in lista:
+            v["id"] = str(v["_id"])
+            v["plate"] = v.get("placa", "S/N")
+            v["entryTime"] = v.get("horaEntrada")
+            v["exitTime"] = v.get("horaSalida")
+            # Ajustamos el estado para que coincida con tu frontend ("Dentro" / "Salida")
+            v["status"] = "Dentro" if v.get("estado") == "dentro" else "Salida"
+            del v["_id"]
+
+        return jsonify(lista), 200
+    except Exception as e:
+        return jsonify([]), 500
+
+# --- 3. ALERTAS (Opcional) ---
+@app.route("/alerts", methods=["GET"])
+def obtener_alertas():
+    # Tu frontend pide alertas, si no hay, mandamos lista vacía para que no de error
+    return jsonify([]), 200
+
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
