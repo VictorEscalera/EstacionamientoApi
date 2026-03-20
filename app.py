@@ -145,7 +145,7 @@ def validar_qr():
 @app.route("/stats", methods=["GET"])
 def obtener_stats():
     try:
-        total_lugares = 50 # Puedes cambiar este número
+        total_lugares = 30 # Puedes cambiar este número
         ocupados = entrada.count_documents({"estado": "dentro"})
         disponibles = total_lugares - ocupados
         
@@ -186,6 +186,8 @@ def obtener_vehiculos():
 def obtener_alertas():
     # Tu frontend pide alertas, si no hay, mandamos lista vacía para que no de error
     return jsonify([]), 200
+
+
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
