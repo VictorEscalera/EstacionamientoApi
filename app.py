@@ -145,7 +145,7 @@ def validar_qr():
 @app.route("/stats", methods=["GET"])
 def obtener_stats():
     try:
-        total_lugares = 30 # Puedes cambiar este número
+        total_lugares = 10 # Puedes cambiar este número
         ocupados = entrada.count_documents({"estado": "dentro"})
         disponibles = total_lugares - ocupados
         
