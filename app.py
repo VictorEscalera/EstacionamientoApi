@@ -187,6 +187,32 @@ def obtener_alertas():
     # Tu frontend pide alertas, si no hay, mandamos lista vacía para que no de error
     return jsonify([]), 200
 
+# --- REGISTRO MANUAL (SIN APP) ---
+@app.route("/entrada-manual", methods=["POST"])
+def entrada_manual():
+    datos = request.json
+    placa = datos.get("placa")
+
+    if not placa:
+        return jsonify({"success": False, "mensaje": "Placa requerida"}), 400
+
+    nuevo = {
+        "qrToken": None,  # No hay QR
+        "placa": placa,
+        "horaEntrada": datetime.now(),
+        "horaSalida": None,
+        "estado": "dentro",
+        "tipo": "manual"  # 👈 importante
+    }
+
+    resultado = entrada.insert_one(nuevo)
+
+    return jsonify({
+        "success": True,
+        "id": str(resultado.inserted_id),
+        "placa": placa,
+        "horaEntrada": str(nuevo["horaEntrada"])
+    })
 
 
 if __name__ == '__main__':
