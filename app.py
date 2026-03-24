@@ -4,11 +4,11 @@ from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError, ServerSelectionTimeoutError
 import uuid
 from datetime import datetime
+import pytz
 import os
 import bcrypt
 
 app = Flask(__name__)
-# CORS habilitado para conectar con Ionic/Frontend
 CORS(app)
 
 # =========================
@@ -16,14 +16,15 @@ CORS(app)
 # =========================
 MONGO_URI = os.environ.get("MONGO_URI")
 
-# Timeout de 5s para evitar que el despliegue se congele si la DB no responde
 cliente = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 db = cliente["Estacionamiento"]
 
 usuarios = db["usuarios"]
 entrada = db["entrada"]
 
-# Crear índice único para el correo
+# 🌎 Zona horaria México
+zona_mx = pytz.timezone('America/Mexico_City')
+
 try:
     usuarios.create_index("correo", unique=True)
     print("Conexión a MongoDB exitosa ✅")
@@ -31,12 +32,12 @@ except Exception as e:
     print(f"Aviso: Error de conexión inicial: {e}")
 
 # =========================
-# RUTAS DE LA API
+# RUTAS
 # =========================
 
 @app.route("/", methods=["GET"])
 def inicio():
-    return jsonify({"mensaje": "API de Estacionamiento (Modo Simple) funcionando 🔥"})
+    return jsonify({"mensaje": "API funcionando 🔥"})
 
 # --- REGISTRO ---
 @app.route("/usuarios", methods=["POST"])
@@ -46,7 +47,7 @@ def crear_usuario():
         nombre = datos.get("nombre")
         correo = datos.get("correo")
         password = datos.get("password")
-        rol = datos.get("rol", "usuario") # Permite enviar rol desde el JSON
+        rol = datos.get("rol", "usuario")
 
         if not nombre or not correo or not password:
             return jsonify({"success": False, "mensaje": "Faltan datos"}), 400
@@ -57,13 +58,14 @@ def crear_usuario():
         nuevo_usuario = {
             "nombre": nombre,
             "correo": correo,
-            "password": password, # Se guarda como texto normal
+            "password": password,
             "rol": rol,
-            "fecha_registro": datetime.now()
+            "fecha_registro": datetime.now(zona_mx)
         }
 
         usuarios.insert_one(nuevo_usuario)
-        return jsonify({"success": True, "mensaje": "Usuario creado correctamente"}), 201
+        return jsonify({"success": True, "mensaje": "Usuario creado"}), 201
+
     except Exception as e:
         return jsonify({"success": False, "mensaje": str(e)}), 500
 
@@ -75,7 +77,6 @@ def login():
         correo = datos.get("correo")
         password = datos.get("password")
 
-        # Buscamos que coincidan correo Y password exactamente
         usuario = usuarios.find_one({"correo": correo, "password": password})
 
         if usuario:
@@ -88,44 +89,77 @@ def login():
                     "rol": usuario.get("rol", "usuario")
                 }
             })
-        
-        return jsonify({"success": False, "mensaje": "Correo o contraseña incorrectos"}), 401
-    except Exception as e:
-        return jsonify({"success": False, "mensaje": "Error en el servidor"}), 500
 
-# --- CONTROL DE ENTRADA (QR) ---
+        return jsonify({"success": False, "mensaje": "Credenciales incorrectas"}), 401
+
+    except Exception:
+        return jsonify({"success": False, "mensaje": "Error servidor"}), 500
+
+# --- CREAR QR ---
 @app.route("/crear-qr", methods=["POST"])
 def crear_qr():
     datos = request.json
     placa = datos.get("placa", "N/A")
-    token = str(uuid.uuid4())
-    nuevo = {
-        "qrToken": token, "placa": placa, "horaEntrada": datetime.now(),
-        "horaSalida": None, "estado": "dentro", "tipo": "app"
-    }
-    entrada.insert_one(nuevo)
-    return jsonify({"success": True, "qrToken": token, "horaEntrada": str(nuevo["horaEntrada"])})
 
-# --- CONTROL DE SALIDA ---
+    token = str(uuid.uuid4())
+
+    hora_actual = datetime.now(zona_mx)
+
+    nuevo = {
+        "qrToken": token,
+        "placa": placa,
+        "horaEntrada": hora_actual,
+        "horaSalida": None,
+        "estado": "dentro",
+        "tipo": "app"
+    }
+
+    entrada.insert_one(nuevo)
+
+    return jsonify({
+        "success": True,
+        "qrToken": token,
+        "horaEntrada": hora_actual.isoformat()
+    })
+
+# --- SALIDA ---
 @app.route("/salida", methods=["POST"])
 def salida():
     datos = request.json
     token = datos.get("qrToken")
+
     registro = entrada.find_one({"qrToken": token, "estado": "dentro"})
+
     if not registro:
         return jsonify({"success": False, "mensaje": "No encontrado"}), 404
-    
-    hora_salida = datetime.now()
+
+    hora_salida = datetime.now(zona_mx)
+
     minutos = (hora_salida - registro["horaEntrada"]).total_seconds() / 60
     precio = round(minutos * 0.5, 2)
-    entrada.update_one({"_id": registro["_id"]}, {"$set": {"horaSalida": hora_salida, "estado": "salida", "precio": precio}})
-    return jsonify({"success": True, "tiempo": minutos, "precio": precio})
 
-# --- VALIDACIÓN DE QR ---
+    entrada.update_one(
+        {"_id": registro["_id"]},
+        {"$set": {
+            "horaSalida": hora_salida,
+            "estado": "salida",
+            "precio": precio
+        }}
+    )
+
+    return jsonify({
+        "success": True,
+        "tiempo": minutos,
+        "precio": precio,
+        "horaSalida": hora_salida.isoformat()
+    })
+
+# --- VALIDAR QR ---
 @app.route("/validar-qr", methods=["POST"])
 def validar_qr():
     datos = request.json
     token = datos.get("qrToken")
+
     registro = entrada.find_one({"qrToken": token})
 
     if not registro:
@@ -137,57 +171,53 @@ def validar_qr():
             "id": str(registro["_id"]),
             "placa": registro.get("placa"),
             "estado": registro.get("estado"),
-            "horaEntrada": str(registro.get("horaEntrada"))
+            "horaEntrada": registro.get("horaEntrada").isoformat()
         }
     })
 
-# --- 1. ESTADÍSTICAS DEL DASHBOARD ---
+# --- STATS ---
 @app.route("/stats", methods=["GET"])
 def obtener_stats():
     try:
-        total_lugares = 10 # Puedes cambiar este número
+        total = 10
         ocupados = entrada.count_documents({"estado": "dentro"})
-        disponibles = total_lugares - ocupados
-        
-        # Opcional: Calcular ingresos (suma de campo 'precio' en registros de salida)
-        # Por ahora lo dejamos en 0 o un valor fijo
-        ingresos = 0 
-        
+        disponibles = total - ocupados
+
         return jsonify({
-            "totalSpaces": total_lugares,
+            "totalSpaces": total,
             "occupiedSpaces": ocupados,
             "availableSpaces": disponibles,
-            "dailyIncome": ingresos
-        }), 200
+            "dailyIncome": 0
+        })
+
     except Exception as e:
         return jsonify({"success": False, "mensaje": str(e)}), 500
 
-# --- 2. LISTADO DE VEHÍCULOS ---
+# --- VEHÍCULOS ---
 @app.route("/vehicles", methods=["GET"])
 def obtener_vehiculos():
     try:
-        # Traemos los últimos 20 vehículos registrados
         lista = list(entrada.find().sort("horaEntrada", -1).limit(20))
+
         for v in lista:
             v["id"] = str(v["_id"])
             v["plate"] = v.get("placa", "S/N")
-            v["entryTime"] = v.get("horaEntrada")
-            v["exitTime"] = v.get("horaSalida")
-            # Ajustamos el estado para que coincida con tu frontend ("Dentro" / "Salida")
+            v["entryTime"] = v.get("horaEntrada").isoformat() if v.get("horaEntrada") else None
+            v["exitTime"] = v.get("horaSalida").isoformat() if v.get("horaSalida") else None
             v["status"] = "Dentro" if v.get("estado") == "dentro" else "Salida"
             del v["_id"]
 
-        return jsonify(lista), 200
-    except Exception as e:
-        return jsonify([]), 500
+        return jsonify(lista)
 
-# --- 3. ALERTAS (Opcional) ---
+    except Exception:
+        return jsonify([])
+
+# --- ALERTAS ---
 @app.route("/alerts", methods=["GET"])
 def obtener_alertas():
-    # Tu frontend pide alertas, si no hay, mandamos lista vacía para que no de error
-    return jsonify([]), 200
+    return jsonify([])
 
-# --- REGISTRO MANUAL (SIN APP) ---
+# --- ENTRADA MANUAL ---
 @app.route("/entrada-manual", methods=["POST"])
 def entrada_manual():
     datos = request.json
@@ -196,13 +226,15 @@ def entrada_manual():
     if not placa:
         return jsonify({"success": False, "mensaje": "Placa requerida"}), 400
 
+    hora_actual = datetime.now(zona_mx)
+
     nuevo = {
-        "qrToken": None,  # No hay QR
+        "qrToken": None,
         "placa": placa,
-        "horaEntrada": datetime.now(),
+        "horaEntrada": hora_actual,
         "horaSalida": None,
         "estado": "dentro",
-        "tipo": "manual"  # 👈 importante
+        "tipo": "manual"
     }
 
     resultado = entrada.insert_one(nuevo)
@@ -211,10 +243,12 @@ def entrada_manual():
         "success": True,
         "id": str(resultado.inserted_id),
         "placa": placa,
-        "horaEntrada": str(nuevo["horaEntrada"])
+        "horaEntrada": hora_actual.isoformat()
     })
 
-
+# =========================
+# RUN
+# =========================
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
