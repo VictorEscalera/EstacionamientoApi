@@ -1,3 +1,4 @@
+
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymongo import MongoClient
@@ -22,6 +23,7 @@ db = cliente["Estacionamiento"]
 
 usuarios = db["usuarios"]
 entrada = db["entrada"]
+ia = db["ia"]
 
 # Crear índice único para el correo
 try:
@@ -166,19 +168,27 @@ def obtener_stats():
 @app.route("/vehicles", methods=["GET"])
 def obtener_vehiculos():
     try:
-        # Traemos los últimos 20 vehículos registrados
-        lista = list(entrada.find().sort("horaEntrada", -1).limit(20))
-        for v in lista:
-            v["id"] = str(v["_id"])
-            v["plate"] = v.get("placa", "S/N")
-            v["entryTime"] = v.get("horaEntrada")
-            v["exitTime"] = v.get("horaSalida")
-            # Ajustamos el estado para que coincida con tu frontend ("Dentro" / "Salida")
-            v["status"] = "Dentro" if v.get("estado") == "dentro" else "Salida"
-            del v["_id"]
 
-        return jsonify(lista), 200
+        lista = list(ia.find().sort("_id", -1).limit(20))
+
+        resultado = []
+
+        for v in lista:
+
+            vehiculo = {
+                "id": str(v["_id"]),
+                "plate": v.get("vehiculo", "N/A"),   # aquí usamos vehiculo
+                "status": v.get("estado", "Detectado"),
+                "entryTime": v.get("hora", ""),
+                "date": v.get("fecha", "")
+            }
+
+            resultado.append(vehiculo)
+
+        return jsonify(resultado), 200
+
     except Exception as e:
+        print("Error vehicles:", e)
         return jsonify([]), 500
 
 # --- 3. ALERTAS (Opcional) ---
