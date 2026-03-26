@@ -116,6 +116,37 @@ def entrada_manual():
 
     return jsonify({"success": True})
 
+# =========================
+# CREAR QR (APP)
+# =========================
+@app.route("/crear-qr", methods=["POST"])
+def crear_qr():
+
+    datos = request.json or {}
+    placa = datos.get("placa", "N/A")
+
+    import uuid
+    token = str(uuid.uuid4())
+
+    nuevo = {
+        "qrToken": token,
+        "placa": placa,
+        "horaEntrada": datetime.now(),
+        "horaSalida": None,
+        "estado": "pendiente",  # 🔥 IMPORTANTE
+        "precio": 0,
+        "pagado": False,
+        "tipo": "app"
+    }
+
+    entrada.insert_one(nuevo)
+
+    return jsonify({
+        "success": True,
+        "qrToken": token,
+        "horaEntrada": str(nuevo["horaEntrada"])
+    })
+
 
 # =========================
 # SALIDA (COBRO)
