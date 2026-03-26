@@ -250,10 +250,21 @@ def vehicles():
     resultado = []
 
     for v in lista:
+
+        estado = v.get("estado")
+
+        # 🔥 manejar correctamente los estados
+        if estado == "dentro":
+            status = "Dentro"
+        elif estado == "pendiente":
+            status = "Pendiente"
+        else:
+            status = "Salida"
+
         resultado.append({
             "id": str(v["_id"]),
-            "plate": v.get("placa") or "N/A",  # 🔥 FIX
-            "status": "Dentro" if v.get("estado") == "dentro" else "Salida",
+            "plate": v.get("placa") or "N/A",
+            "status": status,
             "entryTime": str(v.get("horaEntrada")),
             "exitTime": str(v.get("horaSalida")) if v.get("horaSalida") else None,
             "qrToken": v.get("qrToken"),
