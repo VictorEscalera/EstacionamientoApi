@@ -1,7 +1,6 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymongo import MongoClient
-import uuid
 from datetime import datetime
 import os
 
@@ -31,7 +30,6 @@ except Exception as e:
 # =========================
 # API
 # =========================
-
 @app.route("/", methods=["GET"])
 def inicio():
     return jsonify({"mensaje": "API funcionando 🔥"})
@@ -66,7 +64,7 @@ def login():
 
 
 # =========================
-# VERIFICAR SI HAY ESPACIO
+# VERIFICAR ESPACIO
 # =========================
 @app.route("/contador-entrada", methods=["POST"])
 def contador_entrada():
@@ -86,7 +84,7 @@ def contador_entrada():
 
 
 # =========================
-# REGISTRO MANUAL
+# ENTRADA MANUAL
 # =========================
 @app.route("/entrada-manual", methods=["POST"])
 def entrada_manual():
@@ -120,7 +118,7 @@ def entrada_manual():
 
 
 # =========================
-# SALIDA
+# SALIDA (COBRO)
 # =========================
 @app.route("/salida", methods=["POST"])
 def salida():
@@ -138,8 +136,9 @@ def salida():
 
     hora_salida = datetime.now()
 
-    minutos = (hora_salida - registro["horaEntrada"]).total_seconds() / 60
-    precio = round(minutos * 0.5, 2)
+    # 🔥 COBRO PARA DEMO → 20 pesos cada 5 segundos
+    segundos = (hora_salida - registro["horaEntrada"]).total_seconds()
+    precio = round((segundos / 5) * 20, 2)
 
     entrada.update_one(
         {"_id": registro["_id"]},
@@ -159,35 +158,58 @@ def salida():
 
 
 # =========================
-# STATS DASHBOARD
+# STATS (INGRESOS)
 # =========================
 @app.get("/stats")
 def get_stats():
 
-    total_spaces = 20
+    total_spaces = TOTAL_LUGARES
 
-    occupied = db.ia.count_documents({
+    occupied = ia.count_documents({
         "estado": "Entrada"
     })
 
-    # 🚫 Limitar ocupación al máximo
     if occupied > total_spaces:
         occupied = total_spaces
 
     available = total_spaces - occupied
-
     if available < 0:
         available = 0
+
+    # 💰 INGRESOS DEL DÍA
+    hoy = datetime.now().date()
+
+    ingresos = entrada.aggregate([
+        {
+            "$match": {
+                "estado": "salida",
+                "horaSalida": {
+                    "$gte": datetime.combine(hoy, datetime.min.time())
+                }
+            }
+        },
+        {
+            "$group": {
+                "_id": None,
+                "total": {"$sum": "$precio"}
+            }
+        }
+    ])
+
+    total_income = 0
+    for i in ingresos:
+        total_income = round(i["total"], 2)
 
     return {
         "totalSpaces": total_spaces,
         "occupiedSpaces": occupied,
         "availableSpaces": available,
-        "dailyIncome": 0
+        "dailyIncome": total_income
     }
 
+
 # =========================
-# LISTA VEHICULOS
+# VEHÍCULOS
 # =========================
 @app.route("/vehicles", methods=["GET"])
 def vehicles():
@@ -197,16 +219,16 @@ def vehicles():
     resultado = []
 
     for v in lista:
-
         resultado.append({
-        "id": str(v["_id"]),
-        "plate": v.get("placa"),
-        "status": "Dentro" if v.get("estado") == "dentro" else "Salida",
-        "entryTime": str(v.get("horaEntrada")),
-        "exitTime": str(v.get("horaSalida")) if v.get("horaSalida") else None,
-        "qrToken": v.get("qrToken"),  # 👈 CLAVE
-        "price": v.get("precio", 0)
-    })
+            "id": str(v["_id"]),
+            "plate": v.get("placa") or "N/A",  # 🔥 FIX
+            "status": "Dentro" if v.get("estado") == "dentro" else "Salida",
+            "entryTime": str(v.get("horaEntrada")),
+            "exitTime": str(v.get("horaSalida")) if v.get("horaSalida") else None,
+            "qrToken": v.get("qrToken"),
+            "price": v.get("precio", 0)
+        })
+
     return jsonify(resultado)
 
 
