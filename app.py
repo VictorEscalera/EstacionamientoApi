@@ -19,6 +19,7 @@ db = cliente["Estacionamiento"]
 usuarios = db["usuarios"]
 entrada = db["entrada"]
 ia = db["ia"]
+total_lugares = 20
 
 try:
     usuarios.create_index("correo", unique=True)
@@ -69,6 +70,14 @@ def login():
 @app.route("/contador-entrada", methods=["POST"])
 def contador_entrada():
 
+    ocupados = ia.count_documents({"estado": "Dentro"})
+
+    if ocupados >= total_lugares:
+        return jsonify({
+            "success": False,
+            "message": "🚫 Estacionamiento lleno"
+        }), 403
+
     nuevo = {
         "qrToken": str(uuid.uuid4()),
         "placa": "IA",
@@ -82,12 +91,19 @@ def contador_entrada():
 
     return jsonify({"success": True})
 
-
 # =========================
 # REGISTRO MANUAL
 # =========================
 @app.route("/entrada-manual", methods=["POST"])
 def entrada_manual():
+
+    ocupados = entrada.count_documents({"estado": "dentro"})
+
+    if ocupados >= total_lugares:
+        return jsonify({
+            "success": False,
+            "message": "🚫 Estacionamiento lleno"
+        }), 403
 
     datos = request.json
     placa = datos.get("placa")
@@ -107,7 +123,6 @@ def entrada_manual():
     entrada.insert_one(nuevo)
 
     return jsonify({"success": True})
-
 
 # =========================
 # SALIDA
@@ -152,14 +167,10 @@ def salida():
 # STATS DASHBOARD
 # =========================
 @app.route("/stats", methods=["GET"])
-def obtener_stats():
+def stats():
 
-    total_lugares = 20
-
-    ocupados = ia.count_documents({"estado": "Dentro"})
-
+    ocupados = entrada.count_documents({"estado": "dentro"})
     disponibles = total_lugares - ocupados
-    ingresos = 0
 
     alerta = None
 
