@@ -169,7 +169,7 @@ def salida():
 @app.route("/stats", methods=["GET"])
 def stats():
 
-    ocupados = entrada.count_documents({"estado": "dentro"})
+    ocupados = ia.count_documents({"estado": "dentro"})
     disponibles = total_lugares - ocupados
 
     alerta = None
