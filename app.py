@@ -19,7 +19,8 @@ db = cliente["Estacionamiento"]
 usuarios = db["usuarios"]
 entrada = db["entrada"]
 ia = db["ia"]
-total_lugares = 20
+
+TOTAL_LUGARES = 20
 
 try:
     usuarios.create_index("correo", unique=True)
@@ -65,31 +66,24 @@ def login():
 
 
 # =========================
-# ENTRADA IA (CONTADOR)
+# VERIFICAR SI HAY ESPACIO
 # =========================
 @app.route("/contador-entrada", methods=["POST"])
 def contador_entrada():
 
-    ocupados = ia.count_documents({"estado": "Dentro"})
+    ocupados = ia.count_documents({"estado": "Entrada"})
 
-    if ocupados >= total_lugares:
+    if ocupados >= TOTAL_LUGARES:
         return jsonify({
             "success": False,
             "message": "🚫 Estacionamiento lleno"
         }), 403
 
-    nuevo = {
-        "qrToken": str(uuid.uuid4()),
-        "placa": "IA",
-        "horaEntrada": datetime.now(),
-        "horaSalida": None,
-        "estado": "dentro",
-        "tipo": "ia"
-    }
+    return jsonify({
+        "success": True,
+        "ocupados": ocupados
+    })
 
-    entrada.insert_one(nuevo)
-
-    return jsonify({"success": True})
 
 # =========================
 # REGISTRO MANUAL
@@ -97,9 +91,9 @@ def contador_entrada():
 @app.route("/entrada-manual", methods=["POST"])
 def entrada_manual():
 
-    ocupados = entrada.count_documents({"estado": "Dentro"})
+    ocupados = ia.count_documents({"estado": "Entrada"})
 
-    if ocupados >= total_lugares:
+    if ocupados >= TOTAL_LUGARES:
         return jsonify({
             "success": False,
             "message": "🚫 Estacionamiento lleno"
@@ -123,6 +117,7 @@ def entrada_manual():
     entrada.insert_one(nuevo)
 
     return jsonify({"success": True})
+
 
 # =========================
 # SALIDA
@@ -169,21 +164,24 @@ def salida():
 @app.route("/stats", methods=["GET"])
 def stats():
 
-    ocupados = ia.count_documents({"estado": "Dentro"})
-    disponibles = total_lugares - ocupados
+    ocupados = ia.count_documents({"estado": "Entrada"})
+    disponibles = TOTAL_LUGARES - ocupados
 
     alerta = None
 
-    if ocupados >= total_lugares:
+    if ocupados >= TOTAL_LUGARES:
         alerta = "🚫 Estacionamiento lleno"
+    elif disponibles <= 3:
+        alerta = "⚠️ Quedan pocos lugares"
 
     return jsonify({
-        "totalSpaces": total_lugares,
+        "totalSpaces": TOTAL_LUGARES,
         "occupiedSpaces": ocupados,
         "availableSpaces": disponibles,
         "alert": alerta,
         "dailyIncome": 0
     })
+
 
 # =========================
 # LISTA VEHICULOS
