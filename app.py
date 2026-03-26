@@ -18,7 +18,7 @@ db = cliente["Estacionamiento"]
 
 usuarios = db["usuarios"]
 entrada = db["entrada"]
-ia = db["ia"] # Mantenido por si se usa para logs específicos de IA
+ia = db["ia"]
 
 TOTAL_LUGARES = 20
 
@@ -29,17 +29,20 @@ except Exception as e:
     print("Error Mongo:", e)
 
 # =========================
-# INICIO / TEST
+# API
 # =========================
+
 @app.route("/", methods=["GET"])
 def inicio():
     return jsonify({"mensaje": "API funcionando 🔥"})
+
 
 # =========================
 # LOGIN
 # =========================
 @app.route("/login", methods=["POST"])
 def login():
+
     datos = request.json
     correo = datos.get("correo")
     password = datos.get("password")
@@ -61,46 +64,14 @@ def login():
 
     return jsonify({"success": False}), 401
 
-# =========================
-# CREAR QR (APP)
-# =========================
-@app.route("/crear-qr", methods=["POST"])
-def crear_qr():
-    # Verificar espacio antes de crear
-    ocupados = entrada.count_documents({"estado": "dentro"})
-    if ocupados >= TOTAL_LUGARES:
-        return jsonify({"success": False, "message": "🚫 Estacionamiento lleno"}), 403
-
-    datos = request.json
-    placa = datos.get("placa", "N/A")
-    token = str(uuid.uuid4())
-
-    nuevo = {
-        "qrToken": token,
-        "placa": placa,
-        "horaEntrada": datetime.now(),
-        "horaSalida": None,
-        "estado": "dentro",
-        "precio": 0,
-        "pagado": False,
-        "tipo": "app"
-    }
-
-    entrada.insert_one(nuevo)
-
-    return jsonify({
-        "success": True,
-        "qrToken": token,
-        "horaEntrada": str(nuevo["horaEntrada"])
-    })
 
 # =========================
-# ENTRADA / CONTADOR IA
+# VERIFICAR SI HAY ESPACIO
 # =========================
 @app.route("/contador-entrada", methods=["POST"])
 def contador_entrada():
-    # Unificando lógica: Verifica cupo y registra entrada de IA
-    ocupados = entrada.count_documents({"estado": "dentro"})
+
+    ocupados = ia.count_documents({"estado": "Entrada"})
 
     if ocupados >= TOTAL_LUGARES:
         return jsonify({
@@ -108,30 +79,19 @@ def contador_entrada():
             "message": "🚫 Estacionamiento lleno"
         }), 403
 
-    nuevo = {
-        "qrToken": str(uuid.uuid4()),
-        "placa": "IA-DETECTED",
-        "horaEntrada": datetime.now(),
-        "horaSalida": None,
-        "estado": "dentro",
-        "precio": 0,
-        "pagado": False,
-        "tipo": "ia"
-    }
-
-    entrada.insert_one(nuevo)
-
     return jsonify({
         "success": True,
-        "ocupados": ocupados + 1
+        "ocupados": ocupados
     })
+
 
 # =========================
 # REGISTRO MANUAL
 # =========================
 @app.route("/entrada-manual", methods=["POST"])
 def entrada_manual():
-    ocupados = entrada.count_documents({"estado": "dentro"})
+
+    ocupados = ia.count_documents({"estado": "Entrada"})
 
     if ocupados >= TOTAL_LUGARES:
         return jsonify({
@@ -143,56 +103,28 @@ def entrada_manual():
     placa = datos.get("placa")
 
     if not placa:
-        return jsonify({"success": False, "mensaje": "Placa requerida"}), 400
+        return jsonify({"success": False})
 
     nuevo = {
-        "qrToken": str(uuid.uuid4()),
+        "qrToken": None,
         "placa": placa,
         "horaEntrada": datetime.now(),
         "horaSalida": None,
         "estado": "dentro",
-        "precio": 0,
-        "pagado": False,
         "tipo": "manual"
     }
 
-    resultado = entrada.insert_one(nuevo)
+    entrada.insert_one(nuevo)
 
-    return jsonify({
-        "success": True,
-        "id": str(resultado.inserted_id),
-        "qrToken": nuevo["qrToken"]
-    })
+    return jsonify({"success": True})
+
 
 # =========================
-# VALIDAR QR
-# =========================
-@app.route("/validar-qr", methods=["POST"])
-def validar_qr():
-    datos = request.json
-    token = datos.get("qrToken")
-
-    registro = entrada.find_one({"qrToken": token})
-
-    if not registro:
-        return jsonify({"success": False}), 404
-
-    return jsonify({
-        "success": True,
-        "data": {
-            "id": str(registro["_id"]),
-            "placa": registro["placa"],
-            "estado": registro["estado"],
-            "horaEntrada": str(registro["horaEntrada"]),
-            "qrToken": registro["qrToken"]
-        }
-    })
-
-# =========================
-# SALIDA (COBRO)
+# SALIDA
 # =========================
 @app.route("/salida", methods=["POST"])
 def salida():
+
     datos = request.json
     token = datos.get("qrToken")
 
@@ -202,90 +134,97 @@ def salida():
     })
 
     if not registro:
-        return jsonify({"success": False, "mensaje": "Vehículo no encontrado o ya salió"}), 404
+        return jsonify({"success": False}), 404
 
     hora_salida = datetime.now()
+
     minutos = (hora_salida - registro["horaEntrada"]).total_seconds() / 60
     precio = round(minutos * 0.5, 2)
 
     entrada.update_one(
         {"_id": registro["_id"]},
-        {"$set": {
-            "horaSalida": hora_salida,
-            "estado": "salida",
-            "precio": precio,
-            "pagado": True
-        }}
+        {
+            "$set": {
+                "horaSalida": hora_salida,
+                "estado": "salida",
+                "precio": precio
+            }
+        }
     )
 
     return jsonify({
         "success": True,
-        "tiempo_min": round(minutos, 2),
         "precio": precio
     })
+
 
 # =========================
 # STATS DASHBOARD
 # =========================
-@app.route("/stats", methods=["GET"])
+@app.get("/stats")
 def get_stats():
-    total_spaces = TOTAL_LUGARES
-    ocupados = entrada.count_documents({"estado": "dentro"})
-    
-    # Asegurar que no exceda el límite visualmente
-    if ocupados > total_spaces: ocupados = total_spaces
-    
-    available = total_spaces - ocupados
-    if available < 0: available = 0
 
-    # Cálculo de ingresos
-    pipeline = [
-        {"$match": {"pagado": True}},
-        {"$group": {"_id": None, "total": {"$sum": "$precio"}}}
-    ]
-    result = list(entrada.aggregate(pipeline))
-    ingresos = round(result[0]["total"], 2) if result else 0
+    total_spaces = 20
 
-    return jsonify({
-        "totalSpaces": total_spaces,
-        "occupiedSpaces": ocupados,
-        "availableSpaces": available,
-        "dailyIncome": ingresos
+    occupied = db.ia.count_documents({
+        "estado": "Entrada"
     })
 
+    # 🚫 Limitar ocupación al máximo
+    if occupied > total_spaces:
+        occupied = total_spaces
+
+    available = total_spaces - occupied
+
+    if available < 0:
+        available = 0
+
+    return {
+        "totalSpaces": total_spaces,
+        "occupiedSpaces": occupied,
+        "availableSpaces": available,
+        "dailyIncome": 0
+    }
+
 # =========================
-# LISTA VEHÍCULOS
+# LISTA VEHICULOS
 # =========================
 @app.route("/vehicles", methods=["GET"])
 def vehicles():
+
     lista = list(entrada.find().sort("_id", -1).limit(20))
+
     resultado = []
 
     for v in lista:
+
         resultado.append({
             "id": str(v["_id"]),
             "plate": v.get("placa"),
             "status": "Dentro" if v.get("estado") == "dentro" else "Salida",
             "entryTime": str(v.get("horaEntrada")),
-            "exitTime": str(v.get("horaSalida")) if v.get("horaSalida") else None,
-            "price": v.get("precio", 0),
-            "qrToken": v.get("qrToken"),
-            "pagado": v.get("pagado", False)
+            "exitTime": str(v.get("horaSalida")) if v.get("horaSalida") else None
         })
 
     return jsonify(resultado)
+
 
 # =========================
 # ALERTAS
 # =========================
 @app.route("/alerts", methods=["GET"])
 def alerts():
-    # Por ahora vacío como en los originales
     return jsonify([])
+
 
 # =========================
 # RUN
 # =========================
 if __name__ == "__main__":
+
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
