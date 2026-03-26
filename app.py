@@ -199,13 +199,14 @@ def vehicles():
     for v in lista:
 
         resultado.append({
-            "id": str(v["_id"]),
-            "plate": v.get("placa"),
-            "status": "Dentro" if v.get("estado") == "dentro" else "Salida",
-            "entryTime": str(v.get("horaEntrada")),
-            "exitTime": str(v.get("horaSalida")) if v.get("horaSalida") else None
-        })
-
+        "id": str(v["_id"]),
+        "plate": v.get("placa"),
+        "status": "Dentro" if v.get("estado") == "dentro" else "Salida",
+        "entryTime": str(v.get("horaEntrada")),
+        "exitTime": str(v.get("horaSalida")) if v.get("horaSalida") else None,
+        "qrToken": v.get("qrToken"),  # 👈 CLAVE
+        "price": v.get("precio", 0)
+    })
     return jsonify(resultado)
 
 
