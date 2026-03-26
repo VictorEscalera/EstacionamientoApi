@@ -18,7 +18,6 @@ db = cliente["Estacionamiento"]
 
 usuarios = db["usuarios"]
 entrada = db["entrada"]
-ia = db["ia"]
 
 try:
     usuarios.create_index("correo", unique=True)
@@ -27,27 +26,22 @@ except Exception as e:
     print("Error Mongo:", e)
 
 # =========================
-# API
+# TEST
 # =========================
-
 @app.route("/", methods=["GET"])
 def inicio():
     return jsonify({"mensaje": "API funcionando 🔥"})
-
 
 # =========================
 # LOGIN
 # =========================
 @app.route("/login", methods=["POST"])
 def login():
-
     datos = request.json
-    correo = datos.get("correo")
-    password = datos.get("password")
 
     usuario = usuarios.find_one({
-        "correo": correo,
-        "password": password
+        "correo": datos.get("correo"),
+        "password": datos.get("password")
     })
 
     if usuario:
@@ -62,9 +56,37 @@ def login():
 
     return jsonify({"success": False}), 401
 
+# =========================
+# CREAR QR (APP)
+# =========================
+@app.route("/crear-qr", methods=["POST"])
+def crear_qr():
+    datos = request.json
+    placa = datos.get("placa", "N/A")
+
+    token = str(uuid.uuid4())
+
+    nuevo = {
+        "qrToken": token,
+        "placa": placa,
+        "horaEntrada": datetime.now(),
+        "horaSalida": None,
+        "estado": "dentro",
+        "precio": 0,
+        "pagado": False,
+        "tipo": "app"
+    }
+
+    entrada.insert_one(nuevo)
+
+    return jsonify({
+        "success": True,
+        "qrToken": token,
+        "horaEntrada": str(nuevo["horaEntrada"])
+    })
 
 # =========================
-# ENTRADA IA (CONTADOR)
+# ENTRADA IA
 # =========================
 @app.route("/contador-entrada", methods=["POST"])
 def contador_entrada():
@@ -75,6 +97,8 @@ def contador_entrada():
         "horaEntrada": datetime.now(),
         "horaSalida": None,
         "estado": "dentro",
+        "precio": 0,
+        "pagado": False,
         "tipo": "ia"
     }
 
@@ -82,39 +106,65 @@ def contador_entrada():
 
     return jsonify({"success": True})
 
-
 # =========================
-# REGISTRO MANUAL
+# ENTRADA MANUAL
 # =========================
 @app.route("/entrada-manual", methods=["POST"])
 def entrada_manual():
-
     datos = request.json
     placa = datos.get("placa")
 
     if not placa:
-        return jsonify({"success": False})
+        return jsonify({"success": False, "mensaje": "Placa requerida"}), 400
 
     nuevo = {
-        "qrToken": None,
+        "qrToken": str(uuid.uuid4()),
         "placa": placa,
         "horaEntrada": datetime.now(),
         "horaSalida": None,
         "estado": "dentro",
+        "precio": 0,
+        "pagado": False,
         "tipo": "manual"
     }
 
-    entrada.insert_one(nuevo)
+    resultado = entrada.insert_one(nuevo)
 
-    return jsonify({"success": True})
-
+    return jsonify({
+        "success": True,
+        "id": str(resultado.inserted_id),
+        "qrToken": nuevo["qrToken"]
+    })
 
 # =========================
-# SALIDA
+# VALIDAR QR
+# =========================
+@app.route("/validar-qr", methods=["POST"])
+def validar_qr():
+    datos = request.json
+    token = datos.get("qrToken")
+
+    registro = entrada.find_one({"qrToken": token})
+
+    if not registro:
+        return jsonify({"success": False}), 404
+
+    return jsonify({
+        "success": True,
+        "data": {
+            "id": str(registro["_id"]),
+            "placa": registro["placa"],
+            "estado": registro["estado"],
+            "horaEntrada": str(registro["horaEntrada"]),
+            "qrToken": registro["qrToken"]
+        }
+    })
+
+# =========================
+# SALIDA (COBRO)
 # =========================
 @app.route("/salida", methods=["POST"])
 def salida():
-
     datos = request.json
     token = datos.get("qrToken")
 
@@ -124,7 +174,7 @@ def salida():
     })
 
     if not registro:
-        return jsonify({"success": False}), 404
+        return jsonify({"success": False, "mensaje": "Vehículo no encontrado o ya salió"}), 404
 
     hora_salida = datetime.now()
 
@@ -133,63 +183,67 @@ def salida():
 
     entrada.update_one(
         {"_id": registro["_id"]},
-        {
-            "$set": {
-                "horaSalida": hora_salida,
-                "estado": "salida",
-                "precio": precio
-            }
-        }
+        {"$set": {
+            "horaSalida": hora_salida,
+            "estado": "salida",
+            "precio": precio,
+            "pagado": True
+        }}
     )
 
     return jsonify({
         "success": True,
+        "tiempo_min": round(minutos, 2),
         "precio": precio
     })
 
-
 # =========================
-# STATS DASHBOARD
-# =========================
-@app.route("/stats", methods=["GET"])
-def stats():
-
-    total = 20
-
-    ocupados = ia.count_documents({"estado": "Dentro"})
-    disponibles = total - ocupados
-    ingresos = 0
-
-    return jsonify({
-        "totalSpaces": total,
-        "occupiedSpaces": ocupados,
-        "availableSpaces": disponibles,
-        "dailyIncome": 0
-    })
-
-
-# =========================
-# LISTA VEHICULOS
+# VEHÍCULOS
 # =========================
 @app.route("/vehicles", methods=["GET"])
 def vehicles():
-
     lista = list(entrada.find().sort("_id", -1).limit(20))
 
     resultado = []
 
     for v in lista:
-
         resultado.append({
             "id": str(v["_id"]),
             "plate": v.get("placa"),
             "status": "Dentro" if v.get("estado") == "dentro" else "Salida",
             "entryTime": str(v.get("horaEntrada")),
-            "exitTime": str(v.get("horaSalida")) if v.get("horaSalida") else None
+            "exitTime": str(v.get("horaSalida")) if v.get("horaSalida") else None,
+            "price": v.get("precio", 0),
+            "qrToken": v.get("qrToken"),
+            "pagado": v.get("pagado", False)
         })
 
     return jsonify(resultado)
 
+# =========================
+# STATS
+# =========================
+@app.route("/stats", methods=["GET"])
+def stats():
+    total = 20
+
+    ocupados = entrada.count_documents({"estado": "dentro"})
+    disponibles = total - ocupados
+
+    pipeline = [
+        {"$match": {"pagado": True}},
+        {"$group": {"_id": None, "total": {"$sum": "$precio"}}}
+    ]
+
+    result = list(entrada.aggregate(pipeline))
+    ingresos = result[0]["total"] if result else 0
+
+    return jsonify({
+        "totalSpaces": total,
+        "occupiedSpaces": ocupados,
+        "availableSpaces": disponibles,
+        "dailyIncome": ingresos
+    })
 
 # =========================
 # ALERTAS
@@ -198,15 +252,9 @@ def vehicles():
 def alerts():
     return jsonify([])
 
-
 # =========================
 # RUN
 # =========================
 if __name__ == "__main__":
-
     port = int(os.environ.get("PORT", 5000))
-
-    app.run(
-        host="0.0.0.0",
-        port=port
-    )
+    app.run(host="0.0.0.0", port=port)
