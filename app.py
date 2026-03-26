@@ -161,27 +161,30 @@ def salida():
 # =========================
 # STATS DASHBOARD
 # =========================
-@app.route("/stats", methods=["GET"])
-def stats():
+@app.get("/stats")
+def get_stats():
 
-    ocupados = ia.count_documents({"estado": "Entrada"})
-    disponibles = TOTAL_LUGARES - ocupados
+    total_spaces = 20
 
-    alerta = None
-
-    if ocupados >= TOTAL_LUGARES:
-        alerta = "🚫 Estacionamiento lleno"
-    elif disponibles <= 3:
-        alerta = "⚠️ Quedan pocos lugares"
-
-    return jsonify({
-        "totalSpaces": TOTAL_LUGARES,
-        "occupiedSpaces": ocupados,
-        "availableSpaces": disponibles,
-        "alert": alerta,
-        "dailyIncome": 0
+    occupied = db.ia.count_documents({
+        "estado": "Entrada"
     })
 
+    # 🚫 Limitar ocupación al máximo
+    if occupied > total_spaces:
+        occupied = total_spaces
+
+    available = total_spaces - occupied
+
+    if available < 0:
+        available = 0
+
+    return {
+        "totalSpaces": total_spaces,
+        "occupiedSpaces": occupied,
+        "availableSpaces": available,
+        "dailyIncome": 0
+    }
 
 # =========================
 # LISTA VEHICULOS
