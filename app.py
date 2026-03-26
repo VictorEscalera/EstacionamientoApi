@@ -97,7 +97,7 @@ def contador_entrada():
 @app.route("/entrada-manual", methods=["POST"])
 def entrada_manual():
 
-    ocupados = entrada.count_documents({"estado": "dentro"})
+    ocupados = entrada.count_documents({"estado": "Dentro"})
 
     if ocupados >= total_lugares:
         return jsonify({
@@ -169,7 +169,7 @@ def salida():
 @app.route("/stats", methods=["GET"])
 def stats():
 
-    ocupados = ia.count_documents({"estado": "dentro"})
+    ocupados = ia.count_documents({"estado": "Dentro"})
     disponibles = total_lugares - ocupados
 
     alerta = None
