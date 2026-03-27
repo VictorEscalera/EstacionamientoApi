@@ -344,7 +344,85 @@ def aceptar_qr():
         "success": True
     })
 
+# =========================
+# PREVIEW DE PAGO (NO COBRA)
+# =========================
+@app.route("/preview-pago", methods=["POST"])
+def preview_pago():
 
+    datos = request.json
+    token = datos.get("qrToken")
+
+    registro = entrada.find_one({
+        "qrToken": token,
+        "estado": "dentro"
+    })
+
+    if not registro:
+        return jsonify({
+            "success": False,
+            "message": "Vehículo no válido"
+        }), 404
+
+    ahora = datetime.now()
+
+    segundos = (ahora - registro["horaEntrada"]).total_seconds()
+    precio = round((segundos / 5) * 20, 2)
+
+    return jsonify({
+        "success": True,
+        "data": {
+            "placa": registro.get("placa", "N/A"),
+            "horaEntrada": str(registro["horaEntrada"]),
+            "precio": precio
+        }
+    })
+
+# =========================
+# CONFIRMAR PAGO
+# =========================
+@app.route("/confirmar-pago", methods=["POST"])
+def confirmar_pago():
+
+    datos = request.json
+    token = datos.get("qrToken")
+    metodo = datos.get("metodo")  # efectivo / tarjeta
+
+    registro = entrada.find_one({
+        "qrToken": token,
+        "estado": "dentro"
+    })
+
+    if not registro:
+        return jsonify({
+            "success": False,
+            "message": "No válido"
+        }), 404
+
+    ahora = datetime.now()
+
+    segundos = (ahora - registro["horaEntrada"]).total_seconds()
+    precio = round((segundos / 5) * 20, 2)
+
+    entrada.update_one(
+        {"_id": registro["_id"]},
+        {
+            "$set": {
+                "horaSalida": ahora,
+                "estado": "salida",
+                "precio": precio,
+                "metodoPago": metodo,
+                "pagado": True
+            }
+        }
+    )
+
+    return jsonify({
+        "success": True,
+        "precio": precio
+    })
+
+    
 
 # =========================
 # RUN
