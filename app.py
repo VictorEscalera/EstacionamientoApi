@@ -281,6 +281,70 @@ def vehicles():
 def alerts():
     return jsonify([])
 
+# =========================
+# VALIDAR QR (ADMIN)
+# =========================
+@app.route("/validar-qr", methods=["POST"])
+def validar_qr():
+
+    datos = request.json
+    token = datos.get("qrToken")
+
+    registro = entrada.find_one({
+        "qrToken": token
+    })
+
+    if not registro:
+        return jsonify({
+            "success": False,
+            "message": "QR no encontrado"
+        }), 404
+
+    return jsonify({
+        "success": True,
+        "data": {
+            "id": str(registro["_id"]),
+            "placa": registro.get("placa", "N/A"),
+            "horaEntrada": str(registro.get("horaEntrada")),
+            "estado": registro.get("estado")
+        }
+    })
+
+# =========================
+# ACEPTAR QR (ENTRADA REAL)
+# =========================
+@app.route("/aceptar-qr", methods=["POST"])
+def aceptar_qr():
+
+    datos = request.json
+    token = datos.get("qrToken")
+
+    registro = entrada.find_one({
+        "qrToken": token,
+        "estado": "pendiente"
+    })
+
+    if not registro:
+        return jsonify({
+            "success": False,
+            "message": "QR inválido o ya usado"
+        }), 400
+
+    entrada.update_one(
+        {"_id": registro["_id"]},
+        {
+            "$set": {
+                "estado": "dentro",
+                "horaEntrada": datetime.now()  # 🔥 aquí inicia el conteo REAL
+            }
+        }
+    )
+
+    return jsonify({
+        "success": True
+    })
+
+
 
 # =========================
 # RUN
