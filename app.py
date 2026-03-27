@@ -364,10 +364,31 @@ def preview_pago():
             "message": "Vehículo no válido"
         }), 404
 
+    # 🔥 SI YA EXISTE PRECIO → NO RECALCULAR
+    if registro.get("precio", 0) > 0:
+        return jsonify({
+            "success": True,
+            "data": {
+                "placa": registro.get("placa", "N/A"),
+                "horaEntrada": str(registro["horaEntrada"]),
+                "precio": registro["precio"]
+            }
+        })
+
+    # 🔥 SI NO EXISTE → CALCULAR Y GUARDAR
     ahora = datetime.now()
 
     segundos = (ahora - registro["horaEntrada"]).total_seconds()
     precio = round((segundos / 5) * 20, 2)
+
+    entrada.update_one(
+        {"_id": registro["_id"]},
+        {
+            "$set": {
+                "precio": precio
+            }
+        }
+    )
 
     return jsonify({
         "success": True,
@@ -386,7 +407,7 @@ def confirmar_pago():
 
     datos = request.json
     token = datos.get("qrToken")
-    metodo = datos.get("metodo")  # efectivo / tarjeta
+    metodo = datos.get("metodo")
 
     registro = entrada.find_one({
         "qrToken": token,
@@ -399,10 +420,10 @@ def confirmar_pago():
             "message": "No válido"
         }), 404
 
-    ahora = datetime.now()
+    # 🔥 USAR PRECIO YA GUARDADO
+    precio = registro.get("precio", 0)
 
-    segundos = (ahora - registro["horaEntrada"]).total_seconds()
-    precio = round((segundos / 5) * 20, 2)
+    ahora = datetime.now()
 
     entrada.update_one(
         {"_id": registro["_id"]},
