@@ -50,6 +50,9 @@ def crear_usuario():
         if usuarios.find_one({"correo": correo}):
             return jsonify({"success": False, "mensaje": "El correo ya existe"}), 409
 
+        if usuarios.find_one({"nombre": nombre}):
+            return jsonify({"success": False, "mensaje": "El nombre de usuario ya existe"}), 409
+            
         nuevo_usuario = {
             "nombre": nombre,
             "correo": correo,
