@@ -84,7 +84,8 @@ def login():
             "usuario": {
                 "id": str(usuario["_id"]),
                 "nombre": usuario["nombre"],
-                "correo": usuario["correo"]
+                "correo": usuario["correo"],
+                "rol": usuario.get("rol", "usuario")
             }
         })
 
