@@ -34,6 +34,34 @@ except Exception as e:
 def inicio():
     return jsonify({"mensaje": "API funcionando 🔥"})
 
+# --- REGISTRO ---
+@app.route("/usuarios", methods=["POST"])
+def crear_usuario():
+    try:
+        datos = request.json
+        nombre = datos.get("nombre")
+        correo = datos.get("correo")
+        password = datos.get("password")
+        rol = datos.get("rol", "usuario") # Permite enviar rol desde el JSON
+
+        if not nombre or not correo or not password:
+            return jsonify({"success": False, "mensaje": "Faltan datos"}), 400
+
+        if usuarios.find_one({"correo": correo}):
+            return jsonify({"success": False, "mensaje": "El correo ya existe"}), 409
+
+        nuevo_usuario = {
+            "nombre": nombre,
+            "correo": correo,
+            "password": password, # Se guarda como texto normal
+            "rol": rol,
+            "fecha_registro": datetime.now()
+        }
+
+        usuarios.insert_one(nuevo_usuario)
+        return jsonify({"success": True, "mensaje": "Usuario creado correctamente"}), 201
+    except Exception as e:
+        return jsonify({"success": False, "mensaje": str(e)}), 500
 
 # =========================
 # LOGIN
