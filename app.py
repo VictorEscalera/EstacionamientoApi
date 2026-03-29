@@ -148,7 +148,7 @@ def entrada_manual():
     nuevo = {
         "qrToken": token,              # 🔥 CLAVE
         "placa": placa,
-        "horaEntrada": ahora_mexico()
+        "horaEntrada": ahora_mexico(),
         "horaSalida": None,
         "estado": "dentro",
         "precio": 0,
@@ -180,7 +180,7 @@ def crear_qr():
     nuevo = {
         "qrToken": token,
         "placa": placa,
-        "horaEntrada": ahora_mexico()
+        "horaEntrada": ahora_mexico(),
         "horaSalida": None,
         "estado": "pendiente",  # 🔥 IMPORTANTE
         "precio": 0,
