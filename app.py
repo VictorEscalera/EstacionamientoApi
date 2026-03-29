@@ -395,99 +395,131 @@ def aceptar_qr():
 # =========================
 @app.route("/preview-pago", methods=["POST"])
 def preview_pago():
+    try:
+        datos = request.json
+        token = datos.get("qrToken")
 
-    datos = request.json
-    token = datos.get("qrToken")
+        if not token:
+            return jsonify({
+                "success": False,
+                "message": "Falta qrToken"
+            }), 400
 
-    registro = entrada.find_one({
-        "qrToken": token,
-        "estado": "dentro"
-    })
+        registro = entrada.find_one({
+            "qrToken": token,
+            "estado": "dentro"
+        })
 
-    if not registro:
-        return jsonify({
-            "success": False,
-            "message": "Vehículo no válido"
-        }), 404
+        if not registro:
+            return jsonify({
+                "success": False,
+                "message": "Vehículo no válido"
+            }), 404
 
-    # 🔥 SI YA EXISTE PRECIO → NO RECALCULAR
-    if registro.get("precio", 0) > 0:
+        # 🔥 VALIDAR horaEntrada
+        if not registro.get("horaEntrada"):
+            return jsonify({
+                "success": False,
+                "message": "Registro sin hora de entrada"
+            }), 500
+
+        # 🔥 SI YA TIENE PRECIO → NO recalcular
+        if registro.get("precio", 0) > 0:
+            return jsonify({
+                "success": True,
+                "data": {
+                    "placa": registro.get("placa", "N/A"),
+                    "horaEntrada": formato_fecha(registro["horaEntrada"]),
+                    "precio": registro["precio"]
+                }
+            })
+
+        ahora = ahora_mexico()
+
+        # 🔥 CALCULO SEGURO
+        segundos = (ahora - registro["horaEntrada"]).total_seconds()
+        precio = round((segundos / 5) * 20, 2)
+
+        entrada.update_one(
+            {"_id": registro["_id"]},
+            {
+                "$set": {
+                    "precio": precio
+                }
+            }
+        )
+
         return jsonify({
             "success": True,
             "data": {
                 "placa": registro.get("placa", "N/A"),
                 "horaEntrada": formato_fecha(registro["horaEntrada"]),
-                "precio": registro["precio"]
+                "precio": precio
             }
         })
 
-    # 🔥 SI NO EXISTE → CALCULAR Y GUARDAR
-    ahora = ahora_mexico()
-
-    segundos = (ahora - registro["horaEntrada"]).total_seconds()
-    precio = round((segundos / 5) * 20, 2)
-
-    entrada.update_one(
-        {"_id": registro["_id"]},
-        {
-            "$set": {
-                "precio": precio
-            }
-        }
-    )
-
-    return jsonify({
-        "success": True,
-        "data": {
-            "placa": registro.get("placa", "N/A"),
-            "horaEntrada": str(registro["horaEntrada"]),
-            "precio": precio
-        }
-    })
+    except Exception as e:
+        print("ERROR preview_pago:", e)
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
 
 # =========================
 # CONFIRMAR PAGO
 # =========================
 @app.route("/confirmar-pago", methods=["POST"])
 def confirmar_pago():
+    try:
+        datos = request.json
+        token = datos.get("qrToken")
+        metodo = datos.get("metodo")
 
-    datos = request.json
-    token = datos.get("qrToken")
-    metodo = datos.get("metodo")
+        if not token:
+            return jsonify({
+                "success": False,
+                "message": "Falta qrToken"
+            }), 400
 
-    registro = entrada.find_one({
-        "qrToken": token,
-        "estado": "dentro"
-    })
+        registro = entrada.find_one({
+            "qrToken": token,
+            "estado": "dentro"
+        })
 
-    if not registro:
+        if not registro:
+            return jsonify({
+                "success": False,
+                "message": "No válido"
+            }), 404
+
+        precio = registro.get("precio", 0)
+
+        ahora = ahora_mexico()
+
+        entrada.update_one(
+            {"_id": registro["_id"]},
+            {
+                "$set": {
+                    "horaSalida": ahora,
+                    "estado": "salida",
+                    "precio": precio,
+                    "metodoPago": metodo,
+                    "pagado": True
+                }
+            }
+        )
+
+        return jsonify({
+            "success": True,
+            "precio": precio
+        })
+
+    except Exception as e:
+        print("ERROR confirmar_pago:", e)
         return jsonify({
             "success": False,
-            "message": "No válido"
-        }), 404
-
-    # 🔥 USAR PRECIO YA GUARDADO
-    precio = registro.get("precio", 0)
-
-    ahora = ahora_mexico()
-
-    entrada.update_one(
-        {"_id": registro["_id"]},
-        {
-            "$set": {
-                "horaSalida": ahora,
-                "estado": "salida",
-                "precio": precio,
-                "metodoPago": metodo,
-                "pagado": True
-            }
-        }
-    )
-
-    return jsonify({
-        "success": True,
-        "precio": precio
-    })
+            "message": str(e)
+        }), 500
 
     
 
