@@ -4,6 +4,7 @@ from pymongo import MongoClient
 from datetime import datetime
 import os
 import pytz
+import uuid
 
 mexico_tz = pytz.timezone('America/Mexico_City')
 
@@ -147,13 +148,15 @@ def entrada_manual():
         return jsonify({"success": False})
 
     nuevo = {
-        "qrToken": None,
-        "placa": placa,
-        "horaEntrada": ahora_mexico(),
-        "horaSalida": None,
-        "estado": "dentro",
-        "tipo": "manual"
-    }
+    "qrToken": str(uuid.uuid4()),  # 🔥 ID interno
+    "placa": placa,
+    "horaEntrada": ahora_mexico(),
+    "horaSalida": None,
+    "estado": "dentro",
+    "tipo": "manual",
+    "precio": 0,
+    "pagado": False
+}
 
     entrada.insert_one(nuevo)
 
