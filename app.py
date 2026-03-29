@@ -4,6 +4,7 @@ from pymongo import MongoClient
 from datetime import datetime
 import os
 
+
 app = Flask(__name__)
 CORS(app)
 
@@ -133,20 +134,33 @@ def entrada_manual():
     placa = datos.get("placa")
 
     if not placa:
-        return jsonify({"success": False})
+        return jsonify({
+            "success": False,
+            "message": "Placa requerida"
+        }), 400
+
+    import uuid
+    token = str(uuid.uuid4())  # 🔥 GENERAMOS QR TAMBIÉN PARA MANUAL
 
     nuevo = {
-        "qrToken": None,
+        "qrToken": token,              # 🔥 CLAVE
         "placa": placa,
         "horaEntrada": datetime.now(),
         "horaSalida": None,
         "estado": "dentro",
+        "precio": 0,
+        "pagado": False,
+        "metodoPago": None,
         "tipo": "manual"
     }
 
     entrada.insert_one(nuevo)
 
-    return jsonify({"success": True})
+    return jsonify({
+        "success": True,
+        "qrToken": token,  # 🔥 opcional, por si luego quieres mostrarlo
+        "message": "Vehículo registrado correctamente"
+    })
 
 # =========================
 # CREAR QR (APP)
