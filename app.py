@@ -398,7 +398,6 @@ def aceptar_qr():
 # =========================
 @app.route("/preview-pago", methods=["POST"])
 def preview_pago():
-
     datos = request.json
     token = datos.get("qrToken")
 
@@ -408,42 +407,34 @@ def preview_pago():
     })
 
     if not registro:
-        return jsonify({
-            "success": False,
-            "message": "Vehículo no válido"
-        }), 404
+        return jsonify({"success": False, "message": "Vehículo no válido"}), 404
 
-    # 🔥 SI YA EXISTE PRECIO → NO RECALCULAR
-    if registro.get("precio", 0) > 0:
-        return jsonify({
-            "success": True,
-            "data": {
-                "placa": registro.get("placa", "N/A"),
-                "horaEntrada": str(registro["horaEntrada"]),
-                "precio": registro["precio"]
-            }
-        })
-
-    # 🔥 SI NO EXISTE → CALCULAR Y GUARDAR
+    # 🔥 CORRECCIÓN: Asegurar que horaEntrada tenga zona horaria
+    hora_entrada = registro["horaEntrada"]
+    if hora_entrada.tzinfo is None:
+        hora_entrada = hora_entrada.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/Mexico_City"))
+    
     ahora = ahora_mexico()
-
-    segundos = (ahora - registro["horaEntrada"]).total_seconds()
+    
+    # Calcular segundos
+    segundos = (ahora - hora_entrada).total_seconds()
+    
+    # Evitar segundos negativos por desfases mínimos de servidor
+    if segundos < 0: segundos = 0 
+    
     precio = round((segundos / 5) * 20, 2)
 
+    # Actualizar en DB
     entrada.update_one(
         {"_id": registro["_id"]},
-        {
-            "$set": {
-                "precio": precio
-            }
-        }
+        {"$set": {"precio": precio}}
     )
 
     return jsonify({
         "success": True,
         "data": {
             "placa": registro.get("placa", "N/A"),
-            "horaEntrada": str(registro["horaEntrada"]),
+            "horaEntrada": str(hora_entrada),
             "precio": precio
         }
     })
