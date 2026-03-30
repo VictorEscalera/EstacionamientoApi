@@ -314,8 +314,8 @@ def vehicles():
             "id": str(v["_id"]),
             "plate": v.get("placa") or "N/A",
             "status": status,
-            "entryTime": v.get("horaEntrada").astimezone(ZoneInfo("America/Mexico_City")).strftime("%Y-%m-%d %H:%M:%S") if v.get("horaEntrada") else None,
-            "exitTime": v.get("horaSalida").astimezone(ZoneInfo("America/Mexico_City")).strftime("%Y-%m-%d %H:%M:%S") if v.get("horaSalida") else None,
+            "entryTime": v.get("horaEntrada").astimezone(ZoneInfo("America/Mexico_City")).strftime("%d-%m-%Y %H:%M:%S") if v.get("horaEntrada") else None,
+            "exitTime": v.get("horaSalida").astimezone(ZoneInfo("America/Mexico_City")).strftime("%d-%m-%Y %H:%M:%S") if v.get("horaSalida") else None,
             "qrToken": v.get("qrToken"),
             "price": v.get("precio", 0)
         })
