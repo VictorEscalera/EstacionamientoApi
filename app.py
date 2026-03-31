@@ -16,7 +16,7 @@ cliente = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 db = cliente["Estacionamiento"]
 
 usuarios = db["usuarios"]
-entrada = db["entrada"]
+ingresos = db["ingresos"]
 ia = db["ia"]
 
 TOTAL_LUGARES = 20
@@ -144,7 +144,7 @@ def entrada_manual():
         "tipo": "manual"
     }
 
-    entrada.insert_one(nuevo)
+    ingresos.insert_one(nuevo)
 
     return jsonify({"success": True})
 
@@ -171,7 +171,7 @@ def crear_qr():
         "tipo": "app"
     }
 
-    entrada.insert_one(nuevo)
+    ingresos.insert_one(nuevo)
 
     return jsonify({
         "success": True,
@@ -189,10 +189,10 @@ def salida():
     datos = request.json
     token = datos.get("qrToken")
 
-    registro = entrada.find_one({
-        "qrToken": token,
-        "estado": "dentro"
-    })
+    registro = ingresos.find_one({
+    "qrToken": token,
+    "estado": "dentro"
+})
 
     if not registro:
         return jsonify({"success": False}), 404
@@ -203,7 +203,7 @@ def salida():
     segundos = (hora_salida - registro["horaEntrada"]).total_seconds()
     precio = round((segundos / 5) * 20, 2)
 
-    entrada.update_one(
+    ingresos.update_one(
         {"_id": registro["_id"]},
         {
             "$set": {
@@ -242,7 +242,7 @@ def get_stats():
     # 💰 INGRESOS DEL DÍA
     hoy = datetime.now().date()
 
-    ingresos = entrada.aggregate([
+    pipeline = ingresos.aggregate([
         {
             "$match": {
                 "estado": "salida",
@@ -260,7 +260,7 @@ def get_stats():
     ])
 
     total_income = 0
-    for i in ingresos:
+    for i in pipeline:
         total_income = round(i["total"], 2)
 
     return {
@@ -277,7 +277,7 @@ def get_stats():
 @app.route("/vehicles", methods=["GET"])
 def vehicles():
 
-    lista = list(entrada.find().sort("_id", -1).limit(20))
+    lista = list(ingresos.find().sort("_id", -1).limit(20))
 
     resultado = []
 
@@ -322,7 +322,7 @@ def validar_qr():
     datos = request.json
     token = datos.get("qrToken")
 
-    registro = entrada.find_one({
+    registro = ingresos.find_one({
         "qrToken": token
     })
 
@@ -351,7 +351,7 @@ def aceptar_qr():
     datos = request.json
     token = datos.get("qrToken")
 
-    registro = entrada.find_one({
+    registro = ingresos.find_one({
         "qrToken": token,
         "estado": "pendiente"
     })
@@ -362,7 +362,7 @@ def aceptar_qr():
             "message": "QR inválido o ya usado"
         }), 400
 
-    entrada.update_one(
+    ingresos.update_one(
         {"_id": registro["_id"]},
         {
             "$set": {
@@ -385,7 +385,7 @@ def preview_pago():
     datos = request.json
     token = datos.get("qrToken")
 
-    registro = entrada.find_one({
+    registro = ingresos.find_one({
         "qrToken": token,
         "estado": "dentro"
     })
@@ -413,7 +413,7 @@ def preview_pago():
     segundos = (ahora - registro["horaEntrada"]).total_seconds()
     precio = round((segundos / 5) * 20, 2)
 
-    entrada.update_one(
+    ingresos.update_one(
         {"_id": registro["_id"]},
         {
             "$set": {
@@ -441,7 +441,7 @@ def confirmar_pago():
     token = datos.get("qrToken")
     metodo = datos.get("metodo")
 
-    registro = entrada.find_one({
+    registro = ingresos.find_one({
         "qrToken": token,
         "estado": "dentro"
     })
@@ -457,7 +457,7 @@ def confirmar_pago():
 
     ahora = datetime.now()
 
-    entrada.update_one(
+    ingresos.update_one(
         {"_id": registro["_id"]},
         {
             "$set": {
