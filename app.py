@@ -2,11 +2,8 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymongo import MongoClient
 from datetime import datetime
-from zoneinfo import ZoneInfo
 import os
 
-def ahora_mexico():
-    return datetime.now(ZoneInfo("America/Mexico_City"))
 
 app = Flask(__name__)
 CORS(app)
@@ -62,7 +59,7 @@ def crear_usuario():
             "correo": correo,
             "password": password, # Se guarda como texto normal
             "rol": rol,
-            "fecha_registro": ahora_mexico()
+            "fecha_registro": datetime.now()
         }
 
         usuarios.insert_one(nuevo_usuario)
@@ -148,7 +145,7 @@ def entrada_manual():
     nuevo = {
         "qrToken": token,              # 🔥 CLAVE
         "placa": placa,
-        "horaEntrada": ahora_mexico(),
+        "horaEntrada": datetime.now(),
         "horaSalida": None,
         "estado": "dentro",
         "precio": 0,
@@ -180,7 +177,7 @@ def crear_qr():
     nuevo = {
         "qrToken": token,
         "placa": placa,
-        "horaEntrada": ahora_mexico(),
+        "horaEntrada": datetime.now(),
         "horaSalida": None,
         "estado": "pendiente",  # 🔥 IMPORTANTE
         "precio": 0,
@@ -214,7 +211,7 @@ def salida():
     if not registro:
         return jsonify({"success": False}), 404
 
-    hora_salida = ahora_mexico()
+    hora_salida = datetime.now()
 
     # 🔥 COBRO PARA DEMO → 20 pesos cada 5 segundos
     segundos = (hora_salida - registro["horaEntrada"]).total_seconds()
@@ -257,14 +254,14 @@ def get_stats():
         available = 0
 
     # 💰 INGRESOS DEL DÍA
-    hoy = ahora_mexico().date()
+    hoy = datetime.now().date()
 
     ingresos = entrada.aggregate([
         {
             "$match": {
                 "estado": "salida",
                 "horaSalida": {
-                    "$gte": datetime.combine(hoy, datetime.min.time(), tzinfo=ZoneInfo("America/Mexico_City"))
+                    "$gte": datetime.combine(hoy, datetime.min.time())
                 }
             }
         },
@@ -314,8 +311,8 @@ def vehicles():
             "id": str(v["_id"]),
             "plate": v.get("placa") or "N/A",
             "status": status,
-            "entryTime": v.get("horaEntrada").astimezone(ZoneInfo("America/Mexico_City")).strftime("%d-%m-%Y %I:%M %p").lower() if v.get("horaEntrada") else None,
-            "exitTime": v.get("horaSalida").astimezone(ZoneInfo("America/Mexico_City")).strftime("%d-%m-%Y %I:%M %p").lower() if v.get("horaSalida") else None,
+            "entryTime": str(v.get("horaEntrada")),
+            "exitTime": str(v.get("horaSalida")) if v.get("horaSalida") else None,
             "qrToken": v.get("qrToken"),
             "price": v.get("precio", 0)
         })
@@ -384,7 +381,7 @@ def aceptar_qr():
         {
             "$set": {
                 "estado": "dentro",
-                "horaEntrada": ahora_mexico()  # 🔥 aquí inicia el conteo REAL
+                "horaEntrada": datetime.now()  # 🔥 aquí inicia el conteo REAL
             }
         }
     )
@@ -398,6 +395,7 @@ def aceptar_qr():
 # =========================
 @app.route("/preview-pago", methods=["POST"])
 def preview_pago():
+
     datos = request.json
     token = datos.get("qrToken")
 
@@ -407,34 +405,42 @@ def preview_pago():
     })
 
     if not registro:
-        return jsonify({"success": False, "message": "Vehículo no válido"}), 404
+        return jsonify({
+            "success": False,
+            "message": "Vehículo no válido"
+        }), 404
 
-    # 🔥 CORRECCIÓN: Asegurar que horaEntrada tenga zona horaria
-    hora_entrada = registro["horaEntrada"]
-    if hora_entrada.tzinfo is None:
-        hora_entrada = hora_entrada.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/Mexico_City"))
-    
-    ahora = ahora_mexico()
-    
-    # Calcular segundos
-    segundos = (ahora - hora_entrada).total_seconds()
-    
-    # Evitar segundos negativos por desfases mínimos de servidor
-    if segundos < 0: segundos = 0 
-    
+    # 🔥 SI YA EXISTE PRECIO → NO RECALCULAR
+    if registro.get("precio", 0) > 0:
+        return jsonify({
+            "success": True,
+            "data": {
+                "placa": registro.get("placa", "N/A"),
+                "horaEntrada": str(registro["horaEntrada"]),
+                "precio": registro["precio"]
+            }
+        })
+
+    # 🔥 SI NO EXISTE → CALCULAR Y GUARDAR
+    ahora = datetime.now()
+
+    segundos = (ahora - registro["horaEntrada"]).total_seconds()
     precio = round((segundos / 5) * 20, 2)
 
-    # Actualizar en DB
     entrada.update_one(
         {"_id": registro["_id"]},
-        {"$set": {"precio": precio}}
+        {
+            "$set": {
+                "precio": precio
+            }
+        }
     )
 
     return jsonify({
         "success": True,
         "data": {
             "placa": registro.get("placa", "N/A"),
-            "horaEntrada": str(hora_entrada),
+            "horaEntrada": str(registro["horaEntrada"]),
             "precio": precio
         }
     })
@@ -463,7 +469,7 @@ def confirmar_pago():
     # 🔥 USAR PRECIO YA GUARDADO
     precio = registro.get("precio", 0)
 
-    ahora = ahora_mexico()
+    ahora = datetime.now()
 
     entrada.update_one(
         {"_id": registro["_id"]},
