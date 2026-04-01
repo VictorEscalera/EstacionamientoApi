@@ -7,9 +7,9 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-# =========================
+
 # CONFIGURACIÓN DE MONGODB
-# =========================
+
 MONGO_URI = os.environ.get("MONGO_URI")
 
 cliente = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
@@ -27,14 +27,14 @@ try:
 except Exception as e:
     print("Error Mongo:", e)
 
-# =========================
+
 # API
-# =========================
+
 @app.route("/", methods=["GET"])
 def inicio():
     return jsonify({"mensaje": "API funcionando 🔥"})
 
-# --- REGISTRO ---
+# REGISTRO
 @app.route("/usuarios", methods=["POST"])
 def crear_usuario():
     try:
@@ -42,7 +42,7 @@ def crear_usuario():
         nombre = datos.get("nombre")
         correo = datos.get("correo")
         password = datos.get("password")
-        rol = datos.get("rol", "usuario") # Permite enviar rol desde el JSON
+        rol = datos.get("rol", "usuario") 
 
         if not nombre or not correo or not password:
             return jsonify({"success": False, "mensaje": "Faltan datos"}), 400
@@ -56,7 +56,7 @@ def crear_usuario():
         nuevo_usuario = {
             "nombre": nombre,
             "correo": correo,
-            "password": password, # Se guarda como texto normal
+            "password": password, 
             "rol": rol,
             "fecha_registro": datetime.now()
         }
@@ -66,9 +66,9 @@ def crear_usuario():
     except Exception as e:
         return jsonify({"success": False, "mensaje": str(e)}), 500
 
-# =========================
+
 # LOGIN
-# =========================
+
 @app.route("/login", methods=["POST"])
 def login():
 
@@ -95,9 +95,9 @@ def login():
     return jsonify({"success": False}), 401
 
 
-# =========================
+
 # VERIFICAR ESPACIO
-# =========================
+
 @app.route("/contador-entrada", methods=["POST"])
 def contador_entrada():
 
@@ -115,9 +115,8 @@ def contador_entrada():
     })
 
 
-# =========================
+
 # ENTRADA MANUAL
-# =========================
 @app.route("/entrada-manual", methods=["POST"])
 def entrada_manual():
 
@@ -135,22 +134,31 @@ def entrada_manual():
     if not placa:
         return jsonify({"success": False})
 
+    # 🔥 GENERAR TOKEN COMO LOS QR
+    import uuid
+    token = str(uuid.uuid4())
+
     nuevo = {
-        "qrToken": None,
+        "qrToken": token,  # 🔥 CLAVE
         "placa": placa,
         "horaEntrada": datetime.now(),
         "horaSalida": None,
         "estado": "dentro",
-        "tipo": "manual"
+        "tipo": "manual",
+        "precio": 0,
+        "pagado": False
     }
 
     ingresos.insert_one(nuevo)
 
-    return jsonify({"success": True})
+    return jsonify({
+        "success": True,
+        "qrToken": token  # opcional pero útil
+    })
 
-# =========================
-# CREAR QR (APP)
-# =========================
+
+# CREAR QR
+
 @app.route("/crear-qr", methods=["POST"])
 def crear_qr():
 
@@ -165,7 +173,7 @@ def crear_qr():
         "placa": placa,
         "horaEntrada": datetime.now(),
         "horaSalida": None,
-        "estado": "pendiente",  # 🔥 IMPORTANTE
+        "estado": "pendiente",  
         "precio": 0,
         "pagado": False,
         "tipo": "app"
@@ -180,9 +188,9 @@ def crear_qr():
     })
 
 
-# =========================
+
 # SALIDA (COBRO)
-# =========================
+
 @app.route("/salida", methods=["POST"])
 def salida():
 
@@ -199,7 +207,7 @@ def salida():
 
     hora_salida = datetime.now()
 
-    # 🔥 COBRO PARA DEMO → 20 pesos cada 5 segundos
+    # COBRO PARA DEMO → 20 pesos cada 5 segundos
     segundos = (hora_salida - registro["horaEntrada"]).total_seconds()
     precio = round((segundos / 5) * 20, 2)
 
@@ -220,9 +228,9 @@ def salida():
     })
 
 
-# =========================
+
 # STATS (INGRESOS)
-# =========================
+
 @app.get("/stats")
 def get_stats():
 
@@ -239,7 +247,7 @@ def get_stats():
     if available < 0:
         available = 0
 
-    # 💰 INGRESOS DEL DÍA
+    #  INGRESOS DEL DÍA
     hoy = datetime.now().date()
 
     pipeline = ingresos.aggregate([
@@ -271,9 +279,8 @@ def get_stats():
     }
 
 
-# =========================
 # VEHÍCULOS
-# =========================
+
 @app.route("/vehicles", methods=["GET"])
 def vehicles():
 
@@ -285,7 +292,7 @@ def vehicles():
 
         estado = v.get("estado")
 
-        # 🔥 manejar correctamente los estados
+        #  manejar correctamente los estados
         if estado == "dentro":
             status = "Dentro"
         elif estado == "pendiente":
@@ -306,16 +313,15 @@ def vehicles():
     return jsonify(resultado)
 
 
-# =========================
 # ALERTAS
-# =========================
+
 @app.route("/alerts", methods=["GET"])
 def alerts():
     return jsonify([])
 
-# =========================
+
 # VALIDAR QR (ADMIN)
-# =========================
+
 @app.route("/validar-qr", methods=["POST"])
 def validar_qr():
 
@@ -342,9 +348,9 @@ def validar_qr():
         }
     })
 
-# =========================
+
 # ACEPTAR QR (ENTRADA REAL)
-# =========================
+
 @app.route("/aceptar-qr", methods=["POST"])
 def aceptar_qr():
 
@@ -367,7 +373,7 @@ def aceptar_qr():
         {
             "$set": {
                 "estado": "dentro",
-                "horaEntrada": datetime.now()  # 🔥 aquí inicia el conteo REAL
+                "horaEntrada": datetime.now()  #  aquí inicia el conteo REAL
             }
         }
     )
@@ -376,9 +382,9 @@ def aceptar_qr():
         "success": True
     })
 
-# =========================
+
 # PREVIEW DE PAGO (NO COBRA)
-# =========================
+
 @app.route("/preview-pago", methods=["POST"])
 def preview_pago():
 
@@ -396,7 +402,7 @@ def preview_pago():
             "message": "Vehículo no válido"
         }), 404
 
-    # 🔥 SI YA EXISTE PRECIO → NO RECALCULAR
+    #  SI YA EXISTE PRECIO → NO RECALCULAR
     if registro.get("precio", 0) > 0:
         return jsonify({
             "success": True,
@@ -407,7 +413,7 @@ def preview_pago():
             }
         })
 
-    # 🔥 SI NO EXISTE → CALCULAR Y GUARDAR
+    #  SI NO EXISTE → CALCULAR Y GUARDAR
     ahora = datetime.now()
 
     segundos = (ahora - registro["horaEntrada"]).total_seconds()
@@ -431,9 +437,9 @@ def preview_pago():
         }
     })
 
-# =========================
+
 # CONFIRMAR PAGO
-# =========================
+
 @app.route("/confirmar-pago", methods=["POST"])
 def confirmar_pago():
 
@@ -452,7 +458,7 @@ def confirmar_pago():
             "message": "No válido"
         }), 404
 
-    # 🔥 USAR PRECIO YA GUARDADO
+    #  USAR PRECIO YA GUARDADO
     precio = registro.get("precio", 0)
 
     ahora = datetime.now()
@@ -477,9 +483,9 @@ def confirmar_pago():
 
     
 
-# =========================
+
 # RUN
-# =========================
+
 if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 5000))
